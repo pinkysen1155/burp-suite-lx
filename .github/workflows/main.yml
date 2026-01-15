@@ -1,0 +1,66 @@
+name: RDP-Linux
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: Install Desktop & XRDP
+        run: |
+          sudo apt update
+          sudo apt install -y ubuntu-desktop-minimal xrdp
+          sudo systemctl enable xrdp
+          sudo systemctl start xrdp
+
+      - name: Configure Firewall
+        run: |
+          sudo ufw allow 3389
+          sudo ufw --force enable
+
+      - name: Create RDP User
+        run: |
+          USER_NAME=rdp
+          PASS=$(openssl rand -base64 12)
+          sudo useradd -m -s /bin/bash $USER_NAME
+          echo "$USER_NAME:$PASS" | sudo chpasswd
+          sudo usermod -aG sudo $USER_NAME
+
+          echo "RDP_USER=$USER_NAME" >> $GITHUB_ENV
+          echo "RDP_PASS=$PASS" >> $GITHUB_ENV
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo systemctl enable tailscaled
+          sudo systemctl start tailscaled
+
+      - name: Connect Tailscale
+        run: |
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=linux-runner-${{ github.run_id }}
+          IP=$(tailscale ip -4)
+          echo "TAILSCALE_IP=$IP" >> $GITHUB_ENV
+
+      - name: Verify RDP
+        run: |
+          echo "Tailscale IP: $TAILSCALE_IP"
+          nc -zv $TAILSCALE_IP 3389
+
+      - name: Show Access Info
+        run: |
+          echo "======================"
+          echo " RDP ACCESS"
+          echo " Address: $TAILSCALE_IP"
+          echo " Username: $RDP_USER"
+          echo " Password: $RDP_PASS"
+          echo "======================"
+
+      - name: Maintain Connection
+        run: |
+          while true; do
+            echo "[$(date)] RDP Active"
+            sleep 300
+          done
